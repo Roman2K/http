@@ -28,18 +28,9 @@ RSpec.describe HTTP::Request::Writer do
 
     context "when body is an Enumerable" do
       let(:body) { %w(bees cows) }
-      let(:headers) { HTTP::Headers.coerce "Transfer-Encoding" => "chunked" }
 
       it "does not raise an error" do
         expect { writer }.not_to raise_error
-      end
-
-      context "with unsupported Transfer-Encoding" do
-        let(:headers) { HTTP::Headers.new }
-
-        it "raises an error" do
-          expect { writer }.to raise_error(HTTP::RequestError)
-        end
       end
     end
 
@@ -57,7 +48,7 @@ RSpec.describe HTTP::Request::Writer do
       let(:body)    { %w(bees cows) }
       let(:headers) { HTTP::Headers.coerce "Transfer-Encoding" => "chunked" }
 
-      it "writes a chunked request from an Enumerable correctly" do
+      it "writes a chunked request" do
         writer.stream
         expect(io.string).to end_with "\r\n4\r\nbees\r\n4\r\ncows\r\n0\r\n\r\n"
       end
@@ -69,7 +60,11 @@ RSpec.describe HTTP::Request::Writer do
 
       context "when Transfer-Encoding not set" do
         let(:headers) { HTTP::Headers.new }
-        specify { expect { writer.stream }.to raise_error(HTTP::RequestError) }
+
+        it "writes chunks as-is" do
+          writer.stream
+          expect(io.string).to end_with "\r\n\r\nbeescows"
+        end
       end
 
       context "when Transfer-Encoding is not chunked" do

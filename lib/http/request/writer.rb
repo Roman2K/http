@@ -94,7 +94,7 @@ module HTTP
             end
             method :send_enum_chunked
           else
-            raise RequestError, "invalid transfer encoding for enumerable body"
+            method :send_enum
           end
         else
           raise RequestError, "body of wrong type: #{@body.class}"
@@ -107,6 +107,13 @@ module HTTP
 
       def send_string
         write(join_headers << @body)
+      end
+
+      def send_enum
+        write(join_headers)
+        @body.each do |chunk|
+          write(chunk)
+        end
       end
 
       def send_enum_chunked
