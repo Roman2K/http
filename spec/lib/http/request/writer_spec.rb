@@ -28,9 +28,18 @@ RSpec.describe HTTP::Request::Writer do
 
     context "when body is an Enumerable" do
       let(:body) { %w(bees cows) }
+      let(:headers) { HTTP::Headers.coerce "Transfer-Encoding" => "chunked" }
 
       it "does not raise an error" do
         expect { writer }.not_to raise_error
+      end
+
+      context "with unsupported Transfer-Encoding" do
+        let(:headers) { HTTP::Headers.new }
+
+        it "raises an error" do
+          expect { writer }.to raise_error(HTTP::RequestError)
+        end
       end
     end
 

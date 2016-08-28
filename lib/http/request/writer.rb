@@ -16,16 +16,12 @@ module HTTP
       # End of a chunked transfer
       CHUNKED_END = "#{ZERO}#{CRLF}#{CRLF}".freeze
 
-      # Types valid to be used as body source
-      VALID_BODY_TYPES = [String, NilClass, Enumerable].freeze
-
       def initialize(socket, body, headers, headline)
         @body           = body
         @socket         = socket
         @headers        = headers
         @request_header = [headline]
-
-        validate_body_type!
+        @request_sender = request_sender
       end
 
       # Adds headers to the request header from the headers array
@@ -55,8 +51,6 @@ module HTTP
           @request_header << "#{Headers::CONTENT_LENGTH}: #{@body.bytesize}"
         elsif @body.nil? && !@headers[Headers::CONTENT_LENGTH]
           @request_header << "#{Headers::CONTENT_LENGTH}: 0"
-        elsif @body.is_a?(Enumerable) && CHUNKED != @headers[Headers::TRANSFER_ENCODING]
-          raise(RequestError, "invalid transfer encoding")
         end
       end
 
@@ -69,27 +63,7 @@ module HTTP
       end
 
       def send_request
-        headers = join_headers
-
-        # It's important to send the request in a single write call when
-        # possible in order to play nicely with Nagle's algorithm. Making
-        # two writes in a row triggers a pathological case where Nagle is
-        # expecting a third write that never happens.
-        case @body
-        when NilClass
-          write(headers)
-        when String
-          write(headers << @body)
-        when Enumerable
-          write(headers)
-
-          @body.each do |chunk|
-            write(chunk.bytesize.to_s(16) << CRLF << chunk << CRLF)
-          end
-
-          write(CHUNKED_END)
-        else raise TypeError, "invalid body type: #{@body.class}"
-        end
+        @request_sender.call
       end
 
       private
@@ -102,9 +76,45 @@ module HTTP
         end
       end
 
-      def validate_body_type!
-        return if VALID_BODY_TYPES.any? { |type| @body.is_a? type }
-        raise RequestError, "body of wrong type: #{@body.class}"
+      def request_sender
+        headers = join_headers
+
+        # It's important to send the request in a single write call when
+        # possible in order to play nicely with Nagle's algorithm. Making
+        # two writes in a row triggers a pathological case where Nagle is
+        # expecting a third write that never happens.
+        if @body.nil?
+          method :send_nil
+        elsif @body.is_a? String
+          method :send_string
+        elsif @body.respond_to? :each
+          if enc = @headers[Headers::TRANSFER_ENCODING]
+            if enc != CHUNKED
+              raise RequestError, "unsupported transfer encoding"
+            end
+            method :send_enum_chunked
+          else
+            raise RequestError, "invalid transfer encoding for enumerable body"
+          end
+        else
+          raise RequestError, "body of wrong type: #{@body.class}"
+        end
+      end
+
+      def send_nil
+        write(join_headers)
+      end
+
+      def send_string
+        write(join_headers << @body)
+      end
+
+      def send_enum_chunked
+        write(join_headers)
+        @body.each do |chunk|
+          write(chunk.bytesize.to_s(16) << CRLF << chunk << CRLF)
+        end
+        write(CHUNKED_END)
       end
     end
   end
